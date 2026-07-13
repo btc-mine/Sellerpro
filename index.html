@@ -1,0 +1,3160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+
+    <link rel="manifest" href="manifest.json" />
+    <script>
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("sw.js");
+      }
+    </script>
+
+    <title>Seller Pro - Offline POS</title>
+
+    <!-- Dexie for IndexedDB -->
+    <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js"></script>
+    <!-- SheetJS for Excel export -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <!-- FileSaver -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <style>
+      /* ===== RESET & BASE ===== */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family:
+          "Segoe UI",
+          system-ui,
+          -apple-system,
+          sans-serif;
+      }
+      :root {
+        --primary: #1a73e8;
+        --primary-dark: #1557b0;
+        --primary-light: #e8f0fe;
+        --success: #0f9d58;
+        --danger: #d93025;
+        --warning: #f9ab00;
+        --gray: #5f6368;
+        --light-gray: #f1f3f4;
+        --border: #dadce0;
+        --shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
+        --radius: 8px;
+        --sidebar-width: 240px;
+        --header-height: 60px;
+      }
+      body {
+        background: #f8f9fa;
+        color: #202124;
+        height: 100vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* ===== SCROLLBAR ===== */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #c1c7cd;
+        border-radius: 8px;
+      }
+
+      /* ===== ACTIVATION OVERLAY ===== */
+      #activation-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: rgba(0, 0, 0, 0.55);
+        backdrop-filter: blur(6px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: fadeIn 0.3s ease;
+      }
+      #activation-overlay.hidden {
+        display: none;
+      }
+      .activation-box {
+        background: #fff;
+        padding: 40px 36px;
+        border-radius: 16px;
+        max-width: 420px;
+        width: 90%;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        text-align: center;
+      }
+      .activation-box h1 {
+        font-size: 26px;
+        font-weight: 700;
+        color: var(--primary);
+        margin-bottom: 4px;
+      }
+      .activation-box p.sub {
+        color: var(--gray);
+        font-size: 14px;
+        margin-bottom: 24px;
+      }
+      .activation-box input {
+        width: 100%;
+        padding: 14px 16px;
+        border: 2px solid var(--border);
+        border-radius: var(--radius);
+        font-size: 18px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        text-align: center;
+        transition: 0.2s;
+        outline: none;
+      }
+      .activation-box input:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.2);
+      }
+      .activation-box .btn-activate {
+        margin-top: 16px;
+        width: 100%;
+        padding: 14px;
+        background: var(--primary);
+        color: #fff;
+        border: none;
+        border-radius: var(--radius);
+        font-size: 18px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.2s;
+      }
+      .activation-box .btn-activate:hover {
+        background: var(--primary-dark);
+      }
+      .activation-box .btn-activate:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .activation-box .error-msg {
+        color: var(--danger);
+        font-size: 13px;
+        margin-top: 10px;
+        min-height: 20px;
+      }
+      .activation-box .key-hint {
+        font-size: 12px;
+        color: var(--gray);
+        margin-top: 12px;
+        background: var(--light-gray);
+        padding: 8px 12px;
+        border-radius: 6px;
+        word-break: break-all;
+      }
+
+      /* ===== MAIN LAYOUT ===== */
+      #app {
+        display: none;
+        height: 100vh;
+        flex-direction: column;
+      }
+      #app.active {
+        display: flex;
+      }
+
+      /* ===== HEADER ===== */
+      .app-header {
+        height: var(--header-height);
+        background: #fff;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        padding: 0 20px;
+        flex-shrink: 0;
+        gap: 14px;
+        z-index: 10;
+      }
+      .app-header .menu-btn {
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: var(--gray);
+        padding: 4px 8px;
+        border-radius: 4px;
+        display: none;
+      }
+      .app-header .menu-btn:hover {
+        background: var(--light-gray);
+      }
+      .app-header .brand {
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--primary);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .app-header .brand small {
+        font-weight: 400;
+        font-size: 12px;
+        color: var(--gray);
+      }
+      .app-header .spacer {
+        flex: 1;
+      }
+      .app-header .header-info {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        font-size: 14px;
+        color: var(--gray);
+      }
+      .app-header .header-info .badge {
+        background: var(--primary-light);
+        color: var(--primary);
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      /* ===== BODY ===== */
+      .app-body {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
+
+      /* ===== SIDEBAR ===== */
+      .sidebar {
+        width: var(--sidebar-width);
+        background: #fff;
+        border-right: 1px solid var(--border);
+        padding: 12px 0;
+        overflow-y: auto;
+        flex-shrink: 0;
+        transition: transform 0.25s ease;
+        z-index: 5;
+      }
+      .sidebar .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 20px;
+        cursor: pointer;
+        color: var(--gray);
+        font-size: 14px;
+        font-weight: 500;
+        border-left: 3px solid transparent;
+        transition: 0.15s;
+        text-decoration: none;
+        border: none;
+        background: none;
+        width: 100%;
+        text-align: left;
+      }
+      .sidebar .nav-item:hover {
+        background: var(--light-gray);
+      }
+      .sidebar .nav-item.active {
+        color: var(--primary);
+        background: var(--primary-light);
+        border-left-color: var(--primary);
+      }
+      .sidebar .nav-item .icon {
+        font-size: 20px;
+        width: 28px;
+        text-align: center;
+        flex-shrink: 0;
+      }
+      .sidebar .nav-divider {
+        height: 1px;
+        background: var(--border);
+        margin: 8px 16px;
+      }
+      .sidebar .nav-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: #9aa0a6;
+        padding: 8px 20px 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      /* ===== CONTENT ===== */
+      .content {
+        flex: 1;
+        padding: 20px 24px;
+        overflow-y: auto;
+        background: #f8f9fa;
+      }
+      .page {
+        display: none;
+        animation: fadeIn 0.25s ease;
+      }
+      .page.active {
+        display: block;
+      }
+      .page-title {
+        font-size: 22px;
+        font-weight: 600;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .page-title .actions {
+        margin-left: auto;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      /* ===== CARDS ===== */
+      .card {
+        background: #fff;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        padding: 20px 24px;
+        margin-bottom: 20px;
+        box-shadow: var(--shadow);
+      }
+      .card-title {
+        font-size: 16px;
+        font-weight: 600;
+        margin-bottom: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      /* ===== STATS ROW ===== */
+      .stats-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 14px;
+        margin-bottom: 20px;
+      }
+      .stat-card {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 16px 18px;
+        box-shadow: var(--shadow);
+      }
+      .stat-card .label {
+        font-size: 12px;
+        color: var(--gray);
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+        font-weight: 600;
+      }
+      .stat-card .value {
+        font-size: 26px;
+        font-weight: 700;
+        margin-top: 2px;
+      }
+      .stat-card .value.green {
+        color: var(--success);
+      }
+      .stat-card .value.red {
+        color: var(--danger);
+      }
+      .stat-card .value.blue {
+        color: var(--primary);
+      }
+      .stat-card .value.orange {
+        color: var(--warning);
+      }
+      .stat-card .value.purple {
+        color: #7c3aed;
+      }
+
+      /* ===== TABLES ===== */
+      .table-wrap {
+        overflow-x: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+      table th {
+        background: var(--light-gray);
+        text-align: left;
+        padding: 10px 12px;
+        font-weight: 600;
+        color: var(--gray);
+        border-bottom: 2px solid var(--border);
+        white-space: nowrap;
+      }
+      table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: middle;
+      }
+      table tr:hover td {
+        background: #fafbfc;
+      }
+      table .actions-cell {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .badge-status {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .badge-status.cash {
+        background: #e6f4ea;
+        color: #1e7e34;
+      }
+      .badge-status.credit {
+        background: #fce8e6;
+        color: #b31412;
+      }
+      .badge-status.partial {
+        background: #fef7e0;
+        color: #b65a00;
+      }
+
+      /* ===== FORMS ===== */
+      .form-group {
+        margin-bottom: 14px;
+      }
+      .form-group label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--gray);
+        margin-bottom: 4px;
+      }
+      .form-group input,
+      .form-group select,
+      .form-group textarea {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        font-size: 14px;
+        outline: none;
+        transition: 0.2s;
+        background: #fff;
+      }
+      .form-group input:focus,
+      .form-group select:focus,
+      .form-group textarea:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.12);
+      }
+      .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      @media (max-width: 600px) {
+        .form-row {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* ===== BUTTONS ===== */
+      .btn {
+        padding: 8px 18px;
+        border: none;
+        border-radius: var(--radius);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+      }
+      .btn-primary {
+        background: var(--primary);
+        color: #fff;
+      }
+      .btn-primary:hover {
+        background: var(--primary-dark);
+      }
+      .btn-success {
+        background: var(--success);
+        color: #fff;
+      }
+      .btn-success:hover {
+        background: #0b8043;
+      }
+      .btn-danger {
+        background: var(--danger);
+        color: #fff;
+      }
+      .btn-danger:hover {
+        background: #b31412;
+      }
+      .btn-warning {
+        background: var(--warning);
+        color: #fff;
+      }
+      .btn-warning:hover {
+        background: #e09d00;
+      }
+      .btn-outline {
+        background: transparent;
+        color: var(--gray);
+        border: 1px solid var(--border);
+      }
+      .btn-outline:hover {
+        background: var(--light-gray);
+      }
+      .btn-sm {
+        padding: 4px 12px;
+        font-size: 12px;
+      }
+      .btn-block {
+        width: 100%;
+        justify-content: center;
+      }
+
+      /* ===== MODAL ===== */
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(4px);
+        z-index: 100;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        animation: fadeIn 0.2s ease;
+      }
+      .modal-overlay.show {
+        display: flex;
+      }
+      .modal-box {
+        background: #fff;
+        border-radius: 12px;
+        max-width: 520px;
+        width: 100%;
+        max-height: 90vh;
+        overflow-y: auto;
+        padding: 28px 30px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+        animation: slideUp 0.25s ease;
+      }
+      .modal-box .modal-title {
+        font-size: 20px;
+        font-weight: 600;
+        margin-bottom: 18px;
+      }
+      .modal-box .modal-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 18px;
+        flex-wrap: wrap;
+      }
+      .modal-box .modal-actions .btn {
+        flex: 1;
+        justify-content: center;
+        min-width: 80px;
+      }
+
+      /* ===== TOAST ===== */
+      .toast-container {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        z-index: 999;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-width: 380px;
+        width: 100%;
+      }
+      .toast {
+        background: #323232;
+        color: #fff;
+        padding: 14px 20px;
+        border-radius: var(--radius);
+        font-size: 14px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        animation: slideUp 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .toast.success {
+        background: #1e7e34;
+      }
+      .toast.error {
+        background: #b31412;
+      }
+      .toast.warning {
+        background: #b65a00;
+      }
+      .toast .close-toast {
+        margin-left: auto;
+        background: none;
+        border: none;
+        color: #fff;
+        font-size: 18px;
+        cursor: pointer;
+        opacity: 0.7;
+      }
+      .toast .close-toast:hover {
+        opacity: 1;
+      }
+
+      /* ===== ANIMATIONS ===== */
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      @keyframes slideUp {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* ===== RESPONSIVE ===== */
+      @media (max-width: 768px) {
+        .app-header .menu-btn {
+          display: block;
+        }
+        .sidebar {
+          position: fixed;
+          top: var(--header-height);
+          left: 0;
+          bottom: 0;
+          transform: translateX(-100%);
+          width: 280px;
+          box-shadow: 2px 0 12px rgba(0, 0, 0, 0.12);
+          border-right: none;
+          background: #fff;
+        }
+        .sidebar.open {
+          transform: translateX(0);
+        }
+        .content {
+          padding: 14px 16px;
+        }
+        .stats-row {
+          grid-template-columns: 1fr 1fr;
+        }
+        .modal-box {
+          padding: 20px;
+        }
+        .app-header .brand {
+          font-size: 16px;
+        }
+        .app-header .header-info .badge {
+          display: none;
+        }
+        .page-title {
+          font-size: 18px;
+        }
+        .page-title .actions {
+          width: 100%;
+        }
+        .activation-box {
+          padding: 28px 20px;
+        }
+      }
+      @media (max-width: 480px) {
+        .stats-row {
+          grid-template-columns: 1fr;
+        }
+        .form-row {
+          grid-template-columns: 1fr;
+        }
+        table {
+          font-size: 12px;
+        }
+        table th,
+        table td {
+          padding: 6px 8px;
+        }
+        .card {
+          padding: 14px 16px;
+        }
+        .toast-container {
+          left: 16px;
+          right: 16px;
+          bottom: 16px;
+          max-width: 100%;
+        }
+      }
+
+      /* ===== PRINT / EXPORT ===== */
+      .no-print {
+        display: revert;
+      }
+      @media print {
+        .no-print {
+          display: none !important;
+        }
+        .sidebar {
+          display: none !important;
+        }
+        .app-header {
+          display: none !important;
+        }
+        .content {
+          padding: 10px !important;
+        }
+        .card {
+          border: 1px solid #ddd !important;
+          box-shadow: none !important;
+        }
+      }
+
+      /* misc */
+      .text-center {
+        text-align: center;
+      }
+      .text-muted {
+        color: var(--gray);
+        font-size: 13px;
+      }
+      .mt-10 {
+        margin-top: 10px;
+      }
+      .mb-10 {
+        margin-bottom: 10px;
+      }
+      .flex {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .flex-between {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .gap-6 {
+        gap: 6px;
+      }
+      .w-full {
+        width: 100%;
+      }
+      .empty-state {
+        text-align: center;
+        padding: 40px 20px;
+        color: var(--gray);
+      }
+      .empty-state .icon {
+        font-size: 48px;
+        opacity: 0.5;
+      }
+      .empty-state p {
+        margin-top: 8px;
+      }
+      .chip {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+        background: var(--light-gray);
+        color: var(--gray);
+      }
+      .chip.primary {
+        background: var(--primary-light);
+        color: var(--primary);
+      }
+      .chip.success {
+        background: #e6f4ea;
+        color: #1e7e34;
+      }
+      .chip.danger {
+        background: #fce8e6;
+        color: #b31412;
+      }
+      .chip.warning {
+        background: #fef7e0;
+        color: #b65a00;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ===== ACTIVATION OVERLAY ===== -->
+    <div id="activation-overlay">
+      <div class="activation-box">
+        <h1>🔑 Seller Pro</h1>
+        <p class="sub">Enter your serial key to activate</p>
+
+        <!-- Input field with placeholder example -->
+        <input
+          type="text"
+          id="serial-input"
+          placeholder="SP-XXXXXXXXXXXX"
+          maxlength="15"
+          autofocus
+        />
+
+        <!-- Example key hint (will show a real example from your database) -->
+        <div class="key-hint" id="key-hint">Example key: SP-ABC123DEF456</div>
+
+        <!-- Contact info for purchasing keys -->
+        <div
+          style="
+            font-size: 13px;
+            color: var(--gray);
+            margin-top: 10px;
+            background: var(--light-gray);
+            padding: 8px;
+            border-radius: 6px;
+          "
+        >
+          For buying genuine serial key, contact our representative at
+          <strong>+93781780963</strong>
+        </div>
+
+        <button class="btn-activate" id="btn-activate">Activate</button>
+        <div class="error-msg" id="activation-error"></div>
+      </div>
+    </div>
+
+    <!-- ===== APP ===== -->
+    <div id="app">
+      <!-- HEADER -->
+      <header class="app-header">
+        <button class="menu-btn" id="menu-btn">☰</button>
+        <div class="brand">📊 Seller Pro <small>v2.3</small></div>
+        <div class="spacer"></div>
+        <div class="header-info">
+          <span class="badge" id="device-id-badge">Device: ---</span>
+          <button
+            class="btn btn-sm btn-outline"
+            id="btn-logout"
+            style="padding: 4px 12px"
+          >
+            🚪
+          </button>
+        </div>
+      </header>
+
+      <div class="app-body">
+        <!-- SIDEBAR -->
+        <nav class="sidebar" id="sidebar">
+          <div class="nav-label">Main</div>
+          <button class="nav-item active" data-page="dashboard">
+            <span class="icon">📊</span> Dashboard
+          </button>
+          <button class="nav-item" data-page="products">
+            <span class="icon">📦</span> Products
+          </button>
+          <button class="nav-item" data-page="suppliers">
+            <span class="icon">🏭</span> Suppliers
+          </button>
+          <button class="nav-item" data-page="customers">
+            <span class="icon">👤</span> Customers
+          </button>
+          <div class="nav-divider"></div>
+          <div class="nav-label">Transactions</div>
+          <button class="nav-item" data-page="purchases">
+            <span class="icon">📥</span> Purchases
+          </button>
+          <button class="nav-item" data-page="sales">
+            <span class="icon">📤</span> Sales
+          </button>
+          <div class="nav-divider"></div>
+          <div class="nav-label">Reports</div>
+          <button class="nav-item" data-page="reports">
+            <span class="icon">📈</span> Reports &amp; Export
+          </button>
+          <div class="nav-divider"></div>
+          <div class="nav-label">System</div>
+          <button class="nav-item" data-page="settings">
+            <span class="icon">⚙️</span> Settings
+          </button>
+        </nav>
+
+        <!-- CONTENT -->
+        <main class="content" id="content">
+          <!-- ========== DASHBOARD ========== -->
+          <div class="page active" id="page-dashboard">
+            <div class="page-title">📊 Dashboard</div>
+            <div class="stats-row" id="stats-row">
+              <div class="stat-card">
+                <div class="label">Products</div>
+                <div class="value blue" id="stat-products">0</div>
+              </div>
+              <div class="stat-card">
+                <div class="label">Suppliers</div>
+                <div class="value blue" id="stat-suppliers">0</div>
+              </div>
+              <div class="stat-card">
+                <div class="label">Customers</div>
+                <div class="value blue" id="stat-customers">0</div>
+              </div>
+              <div class="stat-card">
+                <div class="label">Total Sales</div>
+                <div class="value green" id="stat-sales">$0</div>
+              </div>
+              <div class="stat-card">
+                <div class="label">Total Purchases</div>
+                <div class="value red" id="stat-purchases">$0</div>
+              </div>
+              <div class="stat-card">
+                <div class="label">Profit</div>
+                <div class="value orange" id="stat-profit">$0</div>
+              </div>
+              <div class="stat-card">
+                <div class="label">💰 Cash Balance</div>
+                <div class="value purple" id="stat-cash">$0</div>
+              </div>
+              <div class="stat-card">
+                <div class="label">📈 Receivables</div>
+                <div class="value orange" id="stat-receivables">$0</div>
+              </div>
+              <div class="stat-card">
+                <div class="label">📉 Payables</div>
+                <div class="value red" id="stat-payables">$0</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-title">📋 Recent Activity</div>
+              <div id="recent-activity">
+                <div class="text-muted">No recent activity.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========== PRODUCTS ========== -->
+          <div class="page" id="page-products">
+            <div class="page-title">
+              📦 Products
+              <div class="actions">
+                <button class="btn btn-primary" onclick="openModal('product')">
+                  + Add Product
+                </button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>SKU</th>
+                      <th>Unit</th>
+                      <th>Cost</th>
+                      <th>Price</th>
+                      <th>Qty</th>
+                      <th>Supplier</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="products-table-body"></tbody>
+                </table>
+              </div>
+              <div id="products-empty" class="empty-state">
+                <div class="icon">📭</div>
+                <p>No products yet. Add your first product!</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========== SUPPLIERS ========== -->
+          <div class="page" id="page-suppliers">
+            <div class="page-title">
+              🏭 Suppliers
+              <div class="actions">
+                <button class="btn btn-primary" onclick="openModal('supplier')">
+                  + Add Supplier
+                </button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Phone</th>
+                      <th>Email</th>
+                      <th>Address</th>
+                      <th>Balance (you owe)</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="suppliers-table-body"></tbody>
+                </table>
+              </div>
+              <div id="suppliers-empty" class="empty-state">
+                <div class="icon">📭</div>
+                <p>No suppliers yet.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========== CUSTOMERS ========== -->
+          <div class="page" id="page-customers">
+            <div class="page-title">
+              👤 Customers
+              <div class="actions">
+                <button class="btn btn-primary" onclick="openModal('customer')">
+                  + Add Customer
+                </button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Phone</th>
+                      <th>Email</th>
+                      <th>Address</th>
+                      <th>Balance (owes you)</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="customers-table-body"></tbody>
+                </table>
+              </div>
+              <div id="customers-empty" class="empty-state">
+                <div class="icon">📭</div>
+                <p>No customers yet.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========== PURCHASES ========== -->
+          <div class="page" id="page-purchases">
+            <div class="page-title">
+              📥 Purchases
+              <div class="actions">
+                <button class="btn btn-primary" onclick="openModal('purchase')">
+                  + New Purchase
+                </button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Supplier</th>
+                      <th>Product</th>
+                      <th>Qty</th>
+                      <th>Unit Cost</th>
+                      <th>Total</th>
+                      <th>Payment</th>
+                      <th>Cash</th>
+                      <th>Credit</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="purchases-table-body"></tbody>
+                </table>
+              </div>
+              <div id="purchases-empty" class="empty-state">
+                <div class="icon">📭</div>
+                <p>No purchases yet.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========== SALES ========== -->
+          <div class="page" id="page-sales">
+            <div class="page-title">
+              📤 Sales
+              <div class="actions">
+                <button class="btn btn-primary" onclick="openModal('sale')">
+                  + New Sale
+                </button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Customer</th>
+                      <th>Product</th>
+                      <th>Qty</th>
+                      <th>Unit Price</th>
+                      <th>Total</th>
+                      <th>Payment</th>
+                      <th>Cash</th>
+                      <th>Credit</th>
+                      <th>Profit</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sales-table-body"></tbody>
+                </table>
+              </div>
+              <div id="sales-empty" class="empty-state">
+                <div class="icon">📭</div>
+                <p>No sales yet.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========== REPORTS ========== -->
+          <div class="page" id="page-reports">
+            <div class="page-title">📈 Reports &amp; Export</div>
+            <div class="card">
+              <div class="card-title">📊 Summary</div>
+              <div id="report-summary" class="text-muted">Loading...</div>
+            </div>
+            <div class="card">
+              <div class="card-title">📥 Export Data</div>
+              <div class="flex" style="gap: 10px; flex-wrap: wrap">
+                <button class="btn btn-success" onclick="exportExcel('sales')">
+                  📤 Export Sales
+                </button>
+                <button
+                  class="btn btn-success"
+                  onclick="exportExcel('purchases')"
+                >
+                  📥 Export Purchases
+                </button>
+                <button
+                  class="btn btn-success"
+                  onclick="exportExcel('products')"
+                >
+                  📦 Export Products
+                </button>
+                <button
+                  class="btn btn-success"
+                  onclick="exportExcel('customers')"
+                >
+                  👤 Export Customers
+                </button>
+                <button
+                  class="btn btn-success"
+                  onclick="exportExcel('suppliers')"
+                >
+                  🏭 Export Suppliers
+                </button>
+                <button class="btn btn-primary" onclick="exportExcel('full')">
+                  📋 Full Report
+                </button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-title">📈 Profit / Loss Report</div>
+              <div id="profit-loss-report" class="text-muted">Loading...</div>
+            </div>
+          </div>
+
+          <!-- ========== SETTINGS ========== -->
+          <div class="page" id="page-settings">
+            <div class="page-title">⚙️ Settings</div>
+            <div class="card">
+              <div class="card-title">💰 Cash Balance</div>
+              <div class="form-group">
+                <label>Current Cash in Hand</label>
+                <div class="flex">
+                  <input
+                    type="number"
+                    id="settings-cash-input"
+                    step="0.01"
+                    value="0"
+                    style="max-width: 200px"
+                  />
+                  <button class="btn btn-primary" id="settings-cash-save">
+                    Update Cash
+                  </button>
+                </div>
+                <div class="text-muted" style="margin-top: 4px">
+                  Current: <span id="settings-cash-display">$0.00</span>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-title">🔑 Serial Key</div>
+              <p>
+                <strong>Device ID:</strong>
+                <span id="settings-device-id">---</span>
+              </p>
+              <p>
+                <strong>Serial Key:</strong>
+                <span id="settings-serial-key">---</span>
+              </p>
+              <p>
+                <strong>Status:</strong>
+                <span id="settings-status" class="chip success">Active</span>
+              </p>
+              <button class="btn btn-danger mt-10" onclick="deactivateApp()">
+                🚫 Deactivate &amp; Reset
+              </button>
+            </div>
+            <div class="card">
+              <div class="card-title">💾 Data Management</div>
+              <div class="flex">
+                <button class="btn btn-warning" onclick="exportBackup()">
+                  💾 Backup Data (JSON)
+                </button>
+                <button
+                  class="btn btn-outline"
+                  onclick="document.getElementById('restore-input').click()"
+                >
+                  📂 Restore Backup
+                </button>
+                <input
+                  type="file"
+                  id="restore-input"
+                  accept=".json"
+                  style="display: none"
+                  onchange="restoreBackup(event)"
+                />
+                <button
+                  class="btn btn-danger"
+                  onclick="
+                    if (confirm('Delete ALL data? This cannot be undone!'))
+                      clearAllData();
+                  "
+                >
+                  🗑️ Clear All Data
+                </button>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- ===== MODAL CONTAINER ===== -->
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal-box" id="modal-box">
+        <div class="modal-title" id="modal-title">Modal</div>
+        <div id="modal-body"></div>
+        <div class="modal-actions" id="modal-actions">
+          <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+          <button class="btn btn-primary" id="modal-save-btn">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== TOAST CONTAINER ===== -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script>
+      // ============================================================
+      //  DATABASE (IndexedDB with Dexie)
+      // ============================================================
+      const db = new Dexie("SellerProDB");
+      db.version(4).stores({
+        settings: "id, key, value",
+        products: "id, name, sku, supplierId, quantity",
+        suppliers: "id, name, phone, balance",
+        customers: "id, name, phone, balance",
+        purchases:
+          "id, supplierId, date, total, paymentType, cashAmount, creditAmount",
+        purchaseItems: "id, purchaseId, productId, quantity, costPrice, total",
+        sales:
+          "id, customerId, date, total, paymentType, cashAmount, creditAmount",
+        saleItems: "id, saleId, productId, quantity, sellPrice, total",
+      });
+
+      // ============================================================
+      //  HELPERS
+      // ============================================================
+      function uuid() {
+        return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      }
+
+      function today() {
+        return new Date().toISOString().slice(0, 10);
+      }
+
+      function now() {
+        return new Date().toISOString();
+      }
+
+      function fmtPrice(v) {
+        return "$" + Number(v).toFixed(2);
+      }
+
+      function fmtDate(d) {
+        return d ? new Date(d).toLocaleDateString() : "-";
+      }
+
+      function fmtDateTime(d) {
+        return d ? new Date(d).toLocaleString() : "-";
+      }
+
+      function toast(msg, type = "info") {
+        const c = document.getElementById("toast-container");
+        const t = document.createElement("div");
+        t.className = "toast " + type;
+        t.innerHTML = `<span>${msg}</span><button class="close-toast" onclick="this.parentElement.remove()">✕</button>`;
+        c.appendChild(t);
+        setTimeout(() => {
+          if (t.parentElement) t.remove();
+        }, 4000);
+      }
+
+      function showModal(title, html, saveCallback) {
+        document.getElementById("modal-title").textContent = title;
+        document.getElementById("modal-body").innerHTML = html;
+        document.getElementById("modal-overlay").classList.add("show");
+        const btn = document.getElementById("modal-save-btn");
+        btn.onclick = function () {
+          const result = saveCallback();
+          if (result !== false) closeModal();
+        };
+      }
+
+      function openModal(type, data) {
+        const m = {
+          product: () => {
+            const d = data || {};
+            return showModal(
+              d.id ? "✏️ Edit Product" : "➕ Add Product",
+              `
+                        <div class="form-group"><label>Product Name *</label><input id="f-product-name" value="${d.name || ""}" /></div>
+                        <div class="form-row">
+                            <div class="form-group"><label>SKU</label><input id="f-product-sku" value="${d.sku || ""}" /></div>
+                            <div class="form-group"><label>Unit</label><input id="f-product-unit" value="${d.unit || "pcs"}" /></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Cost Price *</label><input id="f-product-cost" type="number" step="0.01" value="${d.costPrice || ""}" /></div>
+                            <div class="form-group"><label>Sell Price *</label><input id="f-product-price" type="number" step="0.01" value="${d.sellPrice || ""}" /></div>
+                        </div>
+                        <div class="form-group"><label>Quantity *</label><input id="f-product-qty" type="number" step="1" value="${d.quantity || 0}" /></div>
+                        <div class="form-group"><label>Supplier</label><select id="f-product-supplier"><option value="">None</option></select></div>
+                    `,
+              async () => {
+                const name = document
+                  .getElementById("f-product-name")
+                  .value.trim();
+                const sku = document
+                  .getElementById("f-product-sku")
+                  .value.trim();
+                const unit =
+                  document.getElementById("f-product-unit").value.trim() ||
+                  "pcs";
+                const cost = parseFloat(
+                  document.getElementById("f-product-cost").value,
+                );
+                const price = parseFloat(
+                  document.getElementById("f-product-price").value,
+                );
+                const qty =
+                  parseFloat(document.getElementById("f-product-qty").value) ||
+                  0;
+                const supplierId =
+                  document.getElementById("f-product-supplier").value || null;
+                if (!name || !cost || !price) {
+                  toast("Fill required fields.", "error");
+                  return false;
+                }
+                if (cost < 0 || price < 0) {
+                  toast("Prices must be positive.", "error");
+                  return false;
+                }
+                const obj = {
+                  name,
+                  sku,
+                  unit,
+                  costPrice: cost,
+                  sellPrice: price,
+                  quantity: qty,
+                  supplierId,
+                  updatedAt: now(),
+                };
+                if (d.id) {
+                  await db.products.update(d.id, obj);
+                  toast("Product updated!");
+                } else {
+                  obj.id = uuid();
+                  obj.createdAt = now();
+                  await db.products.add(obj);
+                  toast("Product added!");
+                }
+                loadProducts();
+                updateStats();
+                return true;
+              },
+            );
+          },
+          supplier: () => {
+            const d = data || {};
+            return showModal(
+              d.id ? "✏️ Edit Supplier" : "🏭 Add Supplier",
+              `
+                        <div class="form-group"><label>Name *</label><input id="f-supplier-name" value="${d.name || ""}" /></div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Phone</label><input id="f-supplier-phone" value="${d.phone || ""}" /></div>
+                            <div class="form-group"><label>Email</label><input id="f-supplier-email" value="${d.email || ""}" /></div>
+                        </div>
+                        <div class="form-group"><label>Address</label><textarea id="f-supplier-address" rows="2">${d.address || ""}</textarea></div>
+                        <div class="form-group"><label>Opening Balance (you owe)</label><input id="f-supplier-balance" type="number" step="0.01" value="${d.balance || 0}" /></div>
+                    `,
+              async () => {
+                const name = document
+                  .getElementById("f-supplier-name")
+                  .value.trim();
+                if (!name) {
+                  toast("Name is required.", "error");
+                  return false;
+                }
+                const balance =
+                  parseFloat(
+                    document.getElementById("f-supplier-balance").value,
+                  ) || 0;
+                const obj = {
+                  name,
+                  phone: document
+                    .getElementById("f-supplier-phone")
+                    .value.trim(),
+                  email: document
+                    .getElementById("f-supplier-email")
+                    .value.trim(),
+                  address: document
+                    .getElementById("f-supplier-address")
+                    .value.trim(),
+                  balance,
+                  updatedAt: now(),
+                };
+                if (d.id) {
+                  await db.suppliers.update(d.id, obj);
+                  toast("Supplier updated!");
+                } else {
+                  obj.id = uuid();
+                  obj.createdAt = now();
+                  await db.suppliers.add(obj);
+                  toast("Supplier added!");
+                }
+                loadSuppliers();
+                updateStats();
+                return true;
+              },
+            );
+          },
+          customer: () => {
+            const d = data || {};
+            return showModal(
+              d.id ? "✏️ Edit Customer" : "👤 Add Customer",
+              `
+                        <div class="form-group"><label>Name *</label><input id="f-customer-name" value="${d.name || ""}" /></div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Phone</label><input id="f-customer-phone" value="${d.phone || ""}" /></div>
+                            <div class="form-group"><label>Email</label><input id="f-customer-email" value="${d.email || ""}" /></div>
+                        </div>
+                        <div class="form-group"><label>Address</label><textarea id="f-customer-address" rows="2">${d.address || ""}</textarea></div>
+                        <div class="form-group"><label>Opening Balance (owes you)</label><input id="f-customer-balance" type="number" step="0.01" value="${d.balance || 0}" /></div>
+                    `,
+              async () => {
+                const name = document
+                  .getElementById("f-customer-name")
+                  .value.trim();
+                if (!name) {
+                  toast("Name is required.", "error");
+                  return false;
+                }
+                const balance =
+                  parseFloat(
+                    document.getElementById("f-customer-balance").value,
+                  ) || 0;
+                const obj = {
+                  name,
+                  phone: document
+                    .getElementById("f-customer-phone")
+                    .value.trim(),
+                  email: document
+                    .getElementById("f-customer-email")
+                    .value.trim(),
+                  address: document
+                    .getElementById("f-customer-address")
+                    .value.trim(),
+                  balance,
+                  updatedAt: now(),
+                };
+                if (d.id) {
+                  await db.customers.update(d.id, obj);
+                  toast("Customer updated!");
+                } else {
+                  obj.id = uuid();
+                  obj.createdAt = now();
+                  await db.customers.add(obj);
+                  toast("Customer added!");
+                }
+                loadCustomers();
+                updateStats();
+                return true;
+              },
+            );
+          },
+          purchase: () => {
+            return showModal(
+              "📥 New Purchase",
+              `
+                        <div class="form-group"><label>Supplier *</label><select id="f-purchase-supplier"></select></div>
+                        <div class="form-group"><label>Product *</label><select id="f-purchase-product"></select></div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Quantity *</label><input id="f-purchase-qty" type="number" step="1" value="1" /></div>
+                            <div class="form-group"><label>Unit Cost *</label><input id="f-purchase-cost" type="number" step="0.01" /></div>
+                        </div>
+                        <div class="form-group"><label>Payment Type</label>
+                            <select id="f-purchase-payment">
+                                <option value="cash">Cash</option>
+                                <option value="credit">Credit</option>
+                                <option value="partial">Partial</option>
+                            </select>
+                        </div>
+                        <div class="form-row" id="purchase-cash-credit-row" style="display:none;">
+                            <div class="form-group"><label>Cash Amount *</label><input id="f-purchase-cash" type="number" step="0.01" value="0" /></div>
+                            <div class="form-group"><label>Credit Amount *</label><input id="f-purchase-credit" type="number" step="0.01" value="0" /></div>
+                        </div>
+                        <div class="form-group"><label>Date</label><input id="f-purchase-date" type="date" value="${today()}" /></div>
+                        <div class="form-group"><label>Notes</label><textarea id="f-purchase-notes" rows="2"></textarea></div>
+                    `,
+              async () => {
+                const supplierId = document.getElementById(
+                  "f-purchase-supplier",
+                ).value;
+                const productId =
+                  document.getElementById("f-purchase-product").value;
+                const qty = parseFloat(
+                  document.getElementById("f-purchase-qty").value,
+                );
+                const cost = parseFloat(
+                  document.getElementById("f-purchase-cost").value,
+                );
+                const paymentType =
+                  document.getElementById("f-purchase-payment").value;
+                const date =
+                  document.getElementById("f-purchase-date").value || today();
+                const notes = document
+                  .getElementById("f-purchase-notes")
+                  .value.trim();
+                if (!supplierId || !productId || !qty || !cost) {
+                  toast("Fill all required fields.", "error");
+                  return false;
+                }
+                if (qty <= 0 || cost < 0) {
+                  toast("Quantity and cost must be positive.", "error");
+                  return false;
+                }
+
+                let cashAmt = 0,
+                  creditAmt = 0;
+                const total = qty * cost;
+                if (paymentType === "cash") {
+                  cashAmt = total;
+                  creditAmt = 0;
+                } else if (paymentType === "credit") {
+                  cashAmt = 0;
+                  creditAmt = total;
+                } else {
+                  // partial
+                  cashAmt =
+                    parseFloat(
+                      document.getElementById("f-purchase-cash").value,
+                    ) || 0;
+                  creditAmt =
+                    parseFloat(
+                      document.getElementById("f-purchase-credit").value,
+                    ) || 0;
+                  if (cashAmt + creditAmt !== total) {
+                    toast(
+                      "Cash + Credit must equal total (${fmtPrice(total)}).",
+                      "error",
+                    );
+                    return false;
+                  }
+                }
+
+                // Update supplier balance (increase what we owe)
+                const supplier = await db.suppliers.get(supplierId);
+                if (!supplier) {
+                  toast("Supplier not found.", "error");
+                  return false;
+                }
+                const newSupplierBalance = (supplier.balance || 0) + creditAmt;
+                await db.suppliers.update(supplierId, {
+                  balance: newSupplierBalance,
+                });
+
+                // Update cash balance (decrease by cash paid)
+                let cashBal = await getCashBalance();
+                cashBal -= cashAmt;
+                await setCashBalance(cashBal);
+
+                // Create purchase record
+                const purchase = {
+                  id: uuid(),
+                  supplierId,
+                  date,
+                  total,
+                  paymentType,
+                  cashAmount: cashAmt,
+                  creditAmount: creditAmt,
+                  notes,
+                  createdAt: now(),
+                };
+                await db.purchases.add(purchase);
+                const item = {
+                  id: uuid(),
+                  purchaseId: purchase.id,
+                  productId,
+                  quantity: qty,
+                  costPrice: cost,
+                  total,
+                };
+                await db.purchaseItems.add(item);
+
+                // Update product quantity and average cost
+                const prod = await db.products.get(productId);
+                if (prod) {
+                  const newQty = (prod.quantity || 0) + qty;
+                  const oldTotal = (prod.quantity || 0) * (prod.costPrice || 0);
+                  const newTotal = oldTotal + total;
+                  const avgCost = newQty > 0 ? newTotal / newQty : cost;
+                  await db.products.update(productId, {
+                    quantity: newQty,
+                    costPrice: avgCost,
+                  });
+                }
+
+                toast("Purchase recorded!");
+                loadPurchases();
+                loadProducts();
+                updateStats();
+                return true;
+              },
+            );
+          },
+          sale: () => {
+            return showModal(
+              "📤 New Sale",
+              `
+                        <div class="form-group"><label>Customer</label>
+                            <select id="f-sale-customer"><option value="walkin">🚶 Walk-in Customer</option></select>
+                        </div>
+                        <div class="form-group"><label>Product *</label><select id="f-sale-product"></select></div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Quantity *</label><input id="f-sale-qty" type="number" step="1" value="1" /></div>
+                            <div class="form-group"><label>Sell Price *</label><input id="f-sale-price" type="number" step="0.01" /></div>
+                        </div>
+                        <div class="form-group"><label>Payment Type</label>
+                            <select id="f-sale-payment">
+                                <option value="cash">Cash</option>
+                                <option value="credit">Credit</option>
+                                <option value="partial">Partial</option>
+                            </select>
+                        </div>
+                        <div class="form-row" id="sale-cash-credit-row" style="display:none;">
+                            <div class="form-group"><label>Cash Amount *</label><input id="f-sale-cash" type="number" step="0.01" value="0" /></div>
+                            <div class="form-group"><label>Credit Amount *</label><input id="f-sale-credit" type="number" step="0.01" value="0" /></div>
+                        </div>
+                        <div class="form-group"><label>Date</label><input id="f-sale-date" type="date" value="${today()}" /></div>
+                        <div class="form-group"><label>Notes</label><textarea id="f-sale-notes" rows="2"></textarea></div>
+                    `,
+              async () => {
+                const customerId =
+                  document.getElementById("f-sale-customer").value;
+                const productId =
+                  document.getElementById("f-sale-product").value;
+                const qty = parseFloat(
+                  document.getElementById("f-sale-qty").value,
+                );
+                const price = parseFloat(
+                  document.getElementById("f-sale-price").value,
+                );
+                const paymentType =
+                  document.getElementById("f-sale-payment").value;
+                const date =
+                  document.getElementById("f-sale-date").value || today();
+                const notes = document
+                  .getElementById("f-sale-notes")
+                  .value.trim();
+                if (!productId || !qty || !price) {
+                  toast("Fill all required fields.", "error");
+                  return false;
+                }
+                if (qty <= 0 || price < 0) {
+                  toast("Quantity and price must be positive.", "error");
+                  return false;
+                }
+
+                // Check stock
+                const prod = await db.products.get(productId);
+                if (!prod || (prod.quantity || 0) < qty) {
+                  toast("Insufficient stock!", "error");
+                  return false;
+                }
+
+                const total = qty * price;
+                let cashAmt = 0,
+                  creditAmt = 0;
+                if (paymentType === "cash") {
+                  cashAmt = total;
+                  creditAmt = 0;
+                } else if (paymentType === "credit") {
+                  cashAmt = 0;
+                  creditAmt = total;
+                } else {
+                  // partial
+                  cashAmt =
+                    parseFloat(document.getElementById("f-sale-cash").value) ||
+                    0;
+                  creditAmt =
+                    parseFloat(
+                      document.getElementById("f-sale-credit").value,
+                    ) || 0;
+                  if (cashAmt + creditAmt !== total) {
+                    toast(
+                      "Cash + Credit must equal total (${fmtPrice(total)}).",
+                      "error",
+                    );
+                    return false;
+                  }
+                }
+
+                // Update customer balance (increase what they owe us)
+                if (customerId !== "walkin") {
+                  const customer = await db.customers.get(customerId);
+                  if (!customer) {
+                    toast("Customer not found.", "error");
+                    return false;
+                  }
+                  const newBalance = (customer.balance || 0) + creditAmt;
+                  await db.customers.update(customerId, {
+                    balance: newBalance,
+                  });
+                }
+
+                // Update cash balance (increase by cash received)
+                let cashBal = await getCashBalance();
+                cashBal += cashAmt;
+                await setCashBalance(cashBal);
+
+                // Create sale record
+                const sale = {
+                  id: uuid(),
+                  customerId,
+                  date,
+                  total,
+                  paymentType,
+                  cashAmount: cashAmt,
+                  creditAmount: creditAmt,
+                  notes,
+                  createdAt: now(),
+                };
+                await db.sales.add(sale);
+                const item = {
+                  id: uuid(),
+                  saleId: sale.id,
+                  productId,
+                  quantity: qty,
+                  sellPrice: price,
+                  total,
+                };
+                await db.saleItems.add(item);
+
+                // Deduct stock
+                await db.products.update(productId, {
+                  quantity: (prod.quantity || 0) - qty,
+                });
+
+                toast("Sale recorded!");
+                loadSales();
+                loadProducts();
+                updateStats();
+                return true;
+              },
+            );
+          },
+        };
+        if (m[type]) m[type]();
+        else toast("Unknown modal type.", "error");
+      }
+
+      // ===== Cash Balance helpers =====
+      async function getCashBalance() {
+        const entry = await db.settings
+          .where("key")
+          .equals("cashBalance")
+          .first();
+        return entry ? parseFloat(entry.value) : 0;
+      }
+
+      async function setCashBalance(amount) {
+        await db.settings.put({
+          id: "cashBalance",
+          key: "cashBalance",
+          value: amount.toString(),
+        });
+        updateSettingsUI();
+      }
+
+      // ===== Update Settings UI =====
+      async function updateSettingsUI() {
+        const cash = await getCashBalance();
+        document.getElementById("settings-cash-display").textContent =
+          fmtPrice(cash);
+        document.getElementById("settings-cash-input").value = cash;
+      }
+
+      function closeModal() {
+        document.getElementById("modal-overlay").classList.remove("show");
+      }
+      // Close modal on overlay click
+      document
+        .getElementById("modal-overlay")
+        .addEventListener("click", function (e) {
+          if (e.target === this) closeModal();
+        });
+
+      // ============================================================
+      //  LOAD DATA FUNCTIONS
+      // ============================================================
+      async function loadProducts() {
+        const products = await db.products.toArray();
+        const suppliers = await db.suppliers.toArray();
+        const supMap = Object.fromEntries(suppliers.map((s) => [s.id, s.name]));
+        const tbody = document.getElementById("products-table-body");
+        const empty = document.getElementById("products-empty");
+        if (products.length === 0) {
+          tbody.innerHTML = "";
+          empty.style.display = "block";
+          return;
+        }
+        empty.style.display = "none";
+        tbody.innerHTML = products
+          .map(
+            (p) => `
+                <tr>
+                    <td><strong>${p.name}</strong></td>
+                    <td>${p.sku || "-"}</td>
+                    <td>${p.unit || "pcs"}</td>
+                    <td>${fmtPrice(p.costPrice || 0)}</td>
+                    <td>${fmtPrice(p.sellPrice || 0)}</td>
+                    <td>${p.quantity || 0}</td>
+                    <td>${supMap[p.supplierId] || "-"}</td>
+                    <td class="actions-cell">
+                        <button class="btn btn-sm btn-primary" onclick="openModal('product', ${JSON.stringify(p).replace(/"/g, "&quot;")})">✏️</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteProduct('${p.id}')">🗑️</button>
+                    </td>
+                </tr>
+            `,
+          )
+          .join("");
+      }
+
+      async function loadSuppliers() {
+        const list = await db.suppliers.toArray();
+        const tbody = document.getElementById("suppliers-table-body");
+        const empty = document.getElementById("suppliers-empty");
+        if (list.length === 0) {
+          tbody.innerHTML = "";
+          empty.style.display = "block";
+          return;
+        }
+        empty.style.display = "none";
+        tbody.innerHTML = list
+          .map(
+            (s) => `
+                <tr>
+                    <td><strong>${s.name}</strong></td>
+                    <td>${s.phone || "-"}</td>
+                    <td>${s.email || "-"}</td>
+                    <td>${s.address || "-"}</td>
+                    <td>${fmtPrice(s.balance || 0)}</td>
+                    <td class="actions-cell">
+                        <button class="btn btn-sm btn-primary" onclick="openModal('supplier', ${JSON.stringify(s).replace(/"/g, "&quot;")})">✏️</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteSupplier('${s.id}')">🗑️</button>
+                    </td>
+                </tr>
+            `,
+          )
+          .join("");
+        populateSupplierSelects(list);
+      }
+
+      function populateSupplierSelects(list) {
+        const selects = document.querySelectorAll(
+          "#f-product-supplier, #f-purchase-supplier",
+        );
+        selects.forEach((sel) => {
+          const current = sel.value;
+          sel.innerHTML =
+            '<option value="">None</option>' +
+            list
+              .map((s) => `<option value="${s.id}">${s.name}</option>`)
+              .join("");
+          sel.value = current;
+        });
+      }
+
+      async function loadCustomers() {
+        const list = await db.customers.toArray();
+        const tbody = document.getElementById("customers-table-body");
+        const empty = document.getElementById("customers-empty");
+        if (list.length === 0) {
+          tbody.innerHTML = "";
+          empty.style.display = "block";
+          return;
+        }
+        empty.style.display = "none";
+        tbody.innerHTML = list
+          .map(
+            (c) => `
+                <tr>
+                    <td><strong>${c.name}</strong></td>
+                    <td>${c.phone || "-"}</td>
+                    <td>${c.email || "-"}</td>
+                    <td>${c.address || "-"}</td>
+                    <td>${fmtPrice(c.balance || 0)}</td>
+                    <td class="actions-cell">
+                        <button class="btn btn-sm btn-primary" onclick="openModal('customer', ${JSON.stringify(c).replace(/"/g, "&quot;")})">✏️</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteCustomer('${c.id}')">🗑️</button>
+                    </td>
+                </tr>
+            `,
+          )
+          .join("");
+        populateCustomerSelects(list);
+      }
+
+      function populateCustomerSelects(list) {
+        const sel = document.getElementById("f-sale-customer");
+        if (!sel) return;
+        const current = sel.value;
+        sel.innerHTML =
+          '<option value="walkin">🚶 Walk-in Customer</option>' +
+          list
+            .map((c) => `<option value="${c.id}">${c.name}</option>`)
+            .join("");
+        sel.value = current;
+      }
+
+      async function loadPurchases() {
+        const purchases = await db.purchases.toArray();
+        const items = await db.purchaseItems.toArray();
+        const suppliers = await db.suppliers.toArray();
+        const products = await db.products.toArray();
+        const supMap = Object.fromEntries(suppliers.map((s) => [s.id, s.name]));
+        const prodMap = Object.fromEntries(products.map((p) => [p.id, p.name]));
+
+        const tbody = document.getElementById("purchases-table-body");
+        const empty = document.getElementById("purchases-empty");
+        if (purchases.length === 0) {
+          tbody.innerHTML = "";
+          empty.style.display = "block";
+          return;
+        }
+        empty.style.display = "none";
+
+        let rows = [];
+        for (const p of purchases) {
+          const its = items.filter((i) => i.purchaseId === p.id);
+          for (const it of its) {
+            rows.push(`
+                        <tr>
+                            <td>${fmtDate(p.date)}</td>
+                            <td>${supMap[p.supplierId] || "-"}</td>
+                            <td>${prodMap[it.productId] || it.productId}</td>
+                            <td>${it.quantity}</td>
+                            <td>${fmtPrice(it.costPrice)}</td>
+                            <td>${fmtPrice(it.total)}</td>
+                            <td><span class="badge-status ${p.paymentType}">${p.paymentType}</span></td>
+                            <td>${fmtPrice(p.cashAmount || 0)}</td>
+                            <td>${fmtPrice(p.creditAmount || 0)}</td>
+                            <td class="actions-cell">
+                                <button class="btn btn-sm btn-danger" onclick="deletePurchase('${p.id}')">🗑️</button>
+                            </td>
+                        </tr>
+                    `);
+          }
+        }
+        tbody.innerHTML = rows.join("");
+      }
+
+      async function loadSales() {
+        const sales = await db.sales.toArray();
+        const items = await db.saleItems.toArray();
+        const customers = await db.customers.toArray();
+        const products = await db.products.toArray();
+        const custMap = Object.fromEntries(
+          customers.map((c) => [c.id, c.name]),
+        );
+        custMap["walkin"] = "🚶 Walk-in";
+        const prodMap = Object.fromEntries(products.map((p) => [p.id, p.name]));
+
+        const tbody = document.getElementById("sales-table-body");
+        const empty = document.getElementById("sales-empty");
+        if (sales.length === 0) {
+          tbody.innerHTML = "";
+          empty.style.display = "block";
+          return;
+        }
+        empty.style.display = "none";
+
+        let rows = [];
+        for (const s of sales) {
+          const its = items.filter((i) => i.saleId === s.id);
+          for (const it of its) {
+            const profit = (it.sellPrice - (it.costPrice || 0)) * it.quantity;
+            rows.push(`
+                        <tr>
+                            <td>${fmtDate(s.date)}</td>
+                            <td>${custMap[s.customerId] || s.customerId}</td>
+                            <td>${prodMap[it.productId] || it.productId}</td>
+                            <td>${it.quantity}</td>
+                            <td>${fmtPrice(it.sellPrice)}</td>
+                            <td>${fmtPrice(it.total)}</td>
+                            <td><span class="badge-status ${s.paymentType}">${s.paymentType}</span></td>
+                            <td>${fmtPrice(s.cashAmount || 0)}</td>
+                            <td>${fmtPrice(s.creditAmount || 0)}</td>
+                            <td>${fmtPrice(profit)}</td>
+                            <td class="actions-cell">
+                                <button class="btn btn-sm btn-danger" onclick="deleteSale('${s.id}')">🗑️</button>
+                            </td>
+                        </tr>
+                    `);
+          }
+        }
+        tbody.innerHTML = rows.join("");
+      }
+
+      // ============================================================
+      //  DELETE FUNCTIONS (reverse balance & cash)
+      // ============================================================
+      async function deleteProduct(id) {
+        if (!confirm("Delete this product?")) return;
+        await db.products.delete(id);
+        loadProducts();
+        updateStats();
+        toast("Product deleted.");
+      }
+
+      async function deleteSupplier(id) {
+        if (!confirm("Delete this supplier?")) return;
+        await db.suppliers.delete(id);
+        loadSuppliers();
+        updateStats();
+        toast("Supplier deleted.");
+      }
+
+      async function deleteCustomer(id) {
+        if (!confirm("Delete this customer?")) return;
+        await db.customers.delete(id);
+        loadCustomers();
+        updateStats();
+        toast("Customer deleted.");
+      }
+
+      async function deletePurchase(id) {
+        if (!confirm("Delete this purchase?")) return;
+        const purchase = await db.purchases.get(id);
+        if (!purchase) return;
+        const items = await db.purchaseItems
+          .where("purchaseId")
+          .equals(id)
+          .toArray();
+
+        // Reverse supplier balance
+        const supplier = await db.suppliers.get(purchase.supplierId);
+        if (supplier) {
+          const newBal = (supplier.balance || 0) - (purchase.creditAmount || 0);
+          await db.suppliers.update(purchase.supplierId, {
+            balance: Math.max(0, newBal),
+          });
+        }
+
+        // Reverse cash balance (add back cash paid)
+        let cashBal = await getCashBalance();
+        cashBal += purchase.cashAmount || 0;
+        await setCashBalance(cashBal);
+
+        // Remove items and adjust stock
+        for (const it of items) {
+          const prod = await db.products.get(it.productId);
+          if (prod) {
+            const newQty = (prod.quantity || 0) - it.quantity;
+            await db.products.update(it.productId, {
+              quantity: Math.max(0, newQty),
+            });
+          }
+          await db.purchaseItems.delete(it.id);
+        }
+        await db.purchases.delete(id);
+        loadPurchases();
+        loadProducts();
+        updateStats();
+        toast("Purchase deleted.");
+      }
+
+      async function deleteSale(id) {
+        if (!confirm("Delete this sale?")) return;
+        const sale = await db.sales.get(id);
+        if (!sale) return;
+        const items = await db.saleItems.where("saleId").equals(id).toArray();
+
+        // Reverse customer balance
+        if (sale.customerId !== "walkin") {
+          const customer = await db.customers.get(sale.customerId);
+          if (customer) {
+            const newBal = (customer.balance || 0) - (sale.creditAmount || 0);
+            await db.customers.update(sale.customerId, {
+              balance: Math.max(0, newBal),
+            });
+          }
+        }
+
+        // Reverse cash balance (subtract cash received)
+        let cashBal = await getCashBalance();
+        cashBal -= sale.cashAmount || 0;
+        await setCashBalance(cashBal);
+
+        // Restore stock
+        for (const it of items) {
+          const prod = await db.products.get(it.productId);
+          if (prod) {
+            await db.products.update(it.productId, {
+              quantity: (prod.quantity || 0) + it.quantity,
+            });
+          }
+          await db.saleItems.delete(it.id);
+        }
+        await db.sales.delete(id);
+        loadSales();
+        loadProducts();
+        updateStats();
+        toast("Sale deleted.");
+      }
+
+      // ============================================================
+      //  STATS & DASHBOARD
+      // ============================================================
+      async function updateStats() {
+        const products = await db.products.count();
+        const suppliers = await db.suppliers.count();
+        const customers = await db.customers.count();
+
+        const sales = await db.sales.toArray();
+        const saleItems = await db.saleItems.toArray();
+        const purchases = await db.purchases.toArray();
+        const purchaseItems = await db.purchaseItems.toArray();
+
+        let totalSales = 0,
+          totalPurchases = 0,
+          totalProfit = 0;
+        for (const s of sales) {
+          const its = saleItems.filter((i) => i.saleId === s.id);
+          for (const it of its) {
+            totalSales += it.total || 0;
+            const prod = await db.products.get(it.productId);
+            const cost = prod ? prod.costPrice || 0 : 0;
+            totalProfit += (it.sellPrice - cost) * it.quantity;
+          }
+        }
+        for (const p of purchases) {
+          const its = purchaseItems.filter((i) => i.purchaseId === p.id);
+          for (const it of its) {
+            totalPurchases += it.total || 0;
+          }
+        }
+
+        const cashBalance = await getCashBalance();
+
+        const custs = await db.customers.toArray();
+        let receivables = 0;
+        for (const c of custs) if (c.balance > 0) receivables += c.balance;
+
+        const sups = await db.suppliers.toArray();
+        let payables = 0;
+        for (const s of sups) if (s.balance > 0) payables += s.balance;
+
+        document.getElementById("stat-products").textContent = products;
+        document.getElementById("stat-suppliers").textContent = suppliers;
+        document.getElementById("stat-customers").textContent = customers;
+        document.getElementById("stat-sales").textContent =
+          fmtPrice(totalSales);
+        document.getElementById("stat-purchases").textContent =
+          fmtPrice(totalPurchases);
+        document.getElementById("stat-profit").textContent =
+          fmtPrice(totalProfit);
+        document.getElementById("stat-cash").textContent =
+          fmtPrice(cashBalance);
+        document.getElementById("stat-receivables").textContent =
+          fmtPrice(receivables);
+        document.getElementById("stat-payables").textContent =
+          fmtPrice(payables);
+
+        // Recent activity
+        const recent = [...sales, ...purchases]
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+          .slice(0, 10);
+        const el = document.getElementById("recent-activity");
+        if (recent.length === 0) {
+          el.innerHTML = '<div class="text-muted">No recent activity.</div>';
+          return;
+        }
+        el.innerHTML = recent
+          .map((r) => {
+            const isSale = r.customerId !== undefined;
+            const label = isSale
+              ? `📤 Sale #${r.id.slice(-4)}`
+              : `📥 Purchase #${r.id.slice(-4)}`;
+            const name = isSale
+              ? r.customerId === "walkin"
+                ? "Walk-in"
+                : r.customerId
+              : r.supplierId;
+            return `<div style="padding:6px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;font-size:13px;">
+                    <span>${label} <span class="text-muted">${fmtDateTime(r.createdAt)}</span></span>
+                    <span><strong>${fmtPrice(r.total)}</strong> <span class="chip ${r.paymentType}">${r.paymentType}</span></span>
+                </div>`;
+          })
+          .join("");
+      }
+
+      // ============================================================
+      //  REPORTS & EXPORT
+      // ============================================================
+      async function loadReports() {
+        const sales = await db.sales.toArray();
+        const purchases = await db.purchases.toArray();
+        const saleItems = await db.saleItems.toArray();
+        const purchaseItems = await db.purchaseItems.toArray();
+        const products = await db.products.toArray();
+        const customers = await db.customers.toArray();
+        const suppliers = await db.suppliers.toArray();
+
+        let totalSales = 0,
+          totalPurchases = 0,
+          totalProfit = 0;
+        for (const s of sales) {
+          const its = saleItems.filter((i) => i.saleId === s.id);
+          for (const it of its) {
+            totalSales += it.total || 0;
+            const prod = await db.products.get(it.productId);
+            const cost = prod ? prod.costPrice || 0 : 0;
+            totalProfit += (it.sellPrice - cost) * it.quantity;
+          }
+        }
+        for (const p of purchases) {
+          const its = purchaseItems.filter((i) => i.purchaseId === p.id);
+          for (const it of its) {
+            totalPurchases += it.total || 0;
+          }
+        }
+
+        const cashBalance = await getCashBalance();
+        let receivables = 0,
+          payables = 0;
+        for (const c of customers) if (c.balance > 0) receivables += c.balance;
+        for (const s of suppliers) if (s.balance > 0) payables += s.balance;
+
+        document.getElementById("report-summary").innerHTML = `
+                <div class="stats-row" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));">
+                    <div class="stat-card"><div class="label">Total Sales</div><div class="value green">${fmtPrice(totalSales)}</div></div>
+                    <div class="stat-card"><div class="label">Total Purchases</div><div class="value red">${fmtPrice(totalPurchases)}</div></div>
+                    <div class="stat-card"><div class="label">Profit</div><div class="value orange">${fmtPrice(totalProfit)}</div></div>
+                    <div class="stat-card"><div class="label">Cash Balance</div><div class="value purple">${fmtPrice(cashBalance)}</div></div>
+                    <div class="stat-card"><div class="label">Receivables</div><div class="value orange">${fmtPrice(receivables)}</div></div>
+                    <div class="stat-card"><div class="label">Payables</div><div class="value red">${fmtPrice(payables)}</div></div>
+                </div>
+                <div class="text-muted mt-10">${sales.length} sales · ${purchases.length} purchases · ${products.length} products · ${customers.length} customers · ${suppliers.length} suppliers</div>
+            `;
+
+        let plHtml =
+          "<table><thead><tr><th>Product</th><th>Units Sold</th><th>Total Revenue</th><th>Total Cost</th><th>Profit</th></tr></thead><tbody>";
+        const prodMap = {};
+        for (const si of saleItems) {
+          const prod = await db.products.get(si.productId);
+          const name = prod ? prod.name : si.productId;
+          if (!prodMap[name]) prodMap[name] = { qty: 0, revenue: 0, cost: 0 };
+          prodMap[name].qty += si.quantity;
+          prodMap[name].revenue += si.total || 0;
+          const c = prod ? prod.costPrice || 0 : 0;
+          prodMap[name].cost += c * si.quantity;
+        }
+        for (const [name, data] of Object.entries(prodMap)) {
+          const profit = data.revenue - data.cost;
+          plHtml += `<tr><td>${name}</td><td>${data.qty}</td><td>${fmtPrice(data.revenue)}</td><td>${fmtPrice(data.cost)}</td><td style="color:${profit >= 0 ? "var(--success)" : "var(--danger)"}">${fmtPrice(profit)}</td></tr>`;
+        }
+        plHtml += "</tbody></table>";
+        document.getElementById("profit-loss-report").innerHTML = plHtml;
+      }
+
+      // ============================================================
+      //  EXPORT EXCEL (updated with cash/credit columns)
+      // ============================================================
+      async function exportExcel(type) {
+        let data = [];
+        let filename = "report";
+        if (type === "sales") {
+          const sales = await db.sales.toArray();
+          const items = await db.saleItems.toArray();
+          const customers = await db.customers.toArray();
+          const products = await db.products.toArray();
+          const custMap = Object.fromEntries(
+            customers.map((c) => [c.id, c.name]),
+          );
+          custMap["walkin"] = "Walk-in";
+          const prodMap = Object.fromEntries(
+            products.map((p) => [p.id, p.name]),
+          );
+          for (const s of sales) {
+            const its = items.filter((i) => i.saleId === s.id);
+            for (const it of its) {
+              data.push({
+                Date: fmtDate(s.date),
+                Customer: custMap[s.customerId] || s.customerId,
+                Product: prodMap[it.productId] || it.productId,
+                Quantity: it.quantity,
+                "Unit Price": it.sellPrice,
+                Total: it.total,
+                Payment: s.paymentType,
+                Cash: s.cashAmount || 0,
+                Credit: s.creditAmount || 0,
+                Notes: s.notes || "",
+              });
+            }
+          }
+          filename = "Sales_Report";
+        } else if (type === "purchases") {
+          const purchases = await db.purchases.toArray();
+          const items = await db.purchaseItems.toArray();
+          const suppliers = await db.suppliers.toArray();
+          const products = await db.products.toArray();
+          const supMap = Object.fromEntries(
+            suppliers.map((s) => [s.id, s.name]),
+          );
+          const prodMap = Object.fromEntries(
+            products.map((p) => [p.id, p.name]),
+          );
+          for (const p of purchases) {
+            const its = items.filter((i) => i.purchaseId === p.id);
+            for (const it of its) {
+              data.push({
+                Date: fmtDate(p.date),
+                Supplier: supMap[p.supplierId] || p.supplierId,
+                Product: prodMap[it.productId] || it.productId,
+                Quantity: it.quantity,
+                "Unit Cost": it.costPrice,
+                Total: it.total,
+                Payment: p.paymentType,
+                Cash: p.cashAmount || 0,
+                Credit: p.creditAmount || 0,
+                Notes: p.notes || "",
+              });
+            }
+          }
+          filename = "Purchases_Report";
+        } else if (type === "products") {
+          const products = await db.products.toArray();
+          const suppliers = await db.suppliers.toArray();
+          const supMap = Object.fromEntries(
+            suppliers.map((s) => [s.id, s.name]),
+          );
+          data = products.map((p) => ({
+            Name: p.name,
+            SKU: p.sku || "",
+            Unit: p.unit || "pcs",
+            "Cost Price": p.costPrice || 0,
+            "Sell Price": p.sellPrice || 0,
+            Quantity: p.quantity || 0,
+            Supplier: supMap[p.supplierId] || "",
+          }));
+          filename = "Products";
+        } else if (type === "customers") {
+          const customers = await db.customers.toArray();
+          data = customers.map((c) => ({
+            Name: c.name,
+            Phone: c.phone || "",
+            Email: c.email || "",
+            Address: c.address || "",
+            Balance: c.balance || 0,
+          }));
+          filename = "Customers";
+        } else if (type === "suppliers") {
+          const suppliers = await db.suppliers.toArray();
+          data = suppliers.map((s) => ({
+            Name: s.name,
+            Phone: s.phone || "",
+            Email: s.email || "",
+            Address: s.address || "",
+            Balance: s.balance || 0,
+          }));
+          filename = "Suppliers";
+        } else if (type === "full") {
+          // Full report includes balances
+          const products = await db.products.toArray();
+          const suppliers = await db.suppliers.toArray();
+          const customers = await db.customers.toArray();
+          const sales = await db.sales.toArray();
+          const purchases = await db.purchases.toArray();
+          const saleItems = await db.saleItems.toArray();
+          const purchaseItems = await db.purchaseItems.toArray();
+          const supMap = Object.fromEntries(
+            suppliers.map((s) => [s.id, s.name]),
+          );
+          const custMap = Object.fromEntries(
+            customers.map((c) => [c.id, c.name]),
+          );
+          custMap["walkin"] = "Walk-in";
+          const prodMap = Object.fromEntries(
+            products.map((p) => [p.id, p.name]),
+          );
+
+          const ws1 = products.map((p) => ({
+            Product: p.name,
+            SKU: p.sku || "",
+            Unit: p.unit || "pcs",
+            Cost: p.costPrice || 0,
+            Price: p.sellPrice || 0,
+            Qty: p.quantity || 0,
+            Supplier: supMap[p.supplierId] || "",
+          }));
+          const ws2 = sales.flatMap((s) => {
+            const its = saleItems.filter((i) => i.saleId === s.id);
+            return its.map((it) => ({
+              Date: fmtDate(s.date),
+              Customer: custMap[s.customerId] || s.customerId,
+              Product: prodMap[it.productId] || it.productId,
+              Qty: it.quantity,
+              Price: it.sellPrice,
+              Total: it.total,
+              Payment: s.paymentType,
+              Cash: s.cashAmount || 0,
+              Credit: s.creditAmount || 0,
+            }));
+          });
+          const ws3 = purchases.flatMap((p) => {
+            const its = purchaseItems.filter((i) => i.purchaseId === p.id);
+            return its.map((it) => ({
+              Date: fmtDate(p.date),
+              Supplier: supMap[p.supplierId] || p.supplierId,
+              Product: prodMap[it.productId] || it.productId,
+              Qty: it.quantity,
+              Cost: it.costPrice,
+              Total: it.total,
+              Payment: p.paymentType,
+              Cash: p.cashAmount || 0,
+              Credit: p.creditAmount || 0,
+            }));
+          });
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(
+            wb,
+            XLSX.utils.json_to_sheet(ws1),
+            "Products",
+          );
+          XLSX.utils.book_append_sheet(
+            wb,
+            XLSX.utils.json_to_sheet(ws2),
+            "Sales",
+          );
+          XLSX.utils.book_append_sheet(
+            wb,
+            XLSX.utils.json_to_sheet(ws3),
+            "Purchases",
+          );
+          XLSX.writeFile(wb, "Full_Report.xlsx");
+          toast("Full report exported!");
+          return;
+        }
+
+        if (data.length === 0) {
+          toast("No data to export.", "warning");
+          return;
+        }
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+        XLSX.writeFile(wb, `${filename}.xlsx`);
+        toast(`${filename} exported!`);
+      }
+
+      // ============================================================
+      //  BACKUP & RESTORE
+      // ============================================================
+      async function exportBackup() {
+        const all = {
+          products: await db.products.toArray(),
+          suppliers: await db.suppliers.toArray(),
+          customers: await db.customers.toArray(),
+          purchases: await db.purchases.toArray(),
+          purchaseItems: await db.purchaseItems.toArray(),
+          sales: await db.sales.toArray(),
+          saleItems: await db.saleItems.toArray(),
+          settings: await db.settings.toArray(),
+          exportedAt: now(),
+        };
+        const blob = new Blob([JSON.stringify(all, null, 2)], {
+          type: "application/json",
+        });
+        saveAs(blob, `SellerPro_Backup_${today()}.json`);
+        toast("Backup exported!");
+      }
+
+      async function restoreBackup(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const data = JSON.parse(text);
+          if (!data.products || !data.suppliers) {
+            toast("Invalid backup file.", "error");
+            return;
+          }
+          if (!confirm("This will replace ALL current data. Continue?")) return;
+          await db.transaction(
+            "rw",
+            db.products,
+            db.suppliers,
+            db.customers,
+            db.purchases,
+            db.purchaseItems,
+            db.sales,
+            db.saleItems,
+            db.settings,
+            async () => {
+              await db.products.clear();
+              await db.suppliers.clear();
+              await db.customers.clear();
+              await db.purchases.clear();
+              await db.purchaseItems.clear();
+              await db.sales.clear();
+              await db.saleItems.clear();
+              if (data.products.length)
+                await db.products.bulkAdd(data.products);
+              if (data.suppliers.length)
+                await db.suppliers.bulkAdd(data.suppliers);
+              if (data.customers && data.customers.length)
+                await db.customers.bulkAdd(data.customers);
+              if (data.purchases && data.purchases.length)
+                await db.purchases.bulkAdd(data.purchases);
+              if (data.purchaseItems && data.purchaseItems.length)
+                await db.purchaseItems.bulkAdd(data.purchaseItems);
+              if (data.sales && data.sales.length)
+                await db.sales.bulkAdd(data.sales);
+              if (data.saleItems && data.saleItems.length)
+                await db.saleItems.bulkAdd(data.saleItems);
+              if (data.settings && data.settings.length) {
+                await db.settings.clear();
+                await db.settings.bulkAdd(data.settings);
+              }
+            },
+          );
+          toast("Backup restored!");
+          loadAll();
+        } catch (e) {
+          toast("Restore failed: " + e.message, "error");
+        }
+        event.target.value = "";
+      }
+
+      async function clearAllData() {
+        await db.transaction(
+          "rw",
+          db.products,
+          db.suppliers,
+          db.customers,
+          db.purchases,
+          db.purchaseItems,
+          db.sales,
+          db.saleItems,
+          db.settings,
+          async () => {
+            await db.products.clear();
+            await db.suppliers.clear();
+            await db.customers.clear();
+            await db.purchases.clear();
+            await db.purchaseItems.clear();
+            await db.sales.clear();
+            await db.saleItems.clear();
+            await db.settings.clear();
+          },
+        );
+        toast("All data cleared.");
+        loadAll();
+      }
+
+      // ============================================================
+      //  SERIAL KEY SYSTEM (15 characters: SP- + 12 random)
+      // ============================================================
+      const SERIAL_KEY_PREFIX = "SP-";
+      let deviceId = "";
+
+      function generateDeviceId() {
+        let id = localStorage.getItem("seller_device_id");
+        if (!id) {
+          id =
+            "DEV-" +
+            Date.now().toString(36).toUpperCase() +
+            "-" +
+            Math.random().toString(36).slice(2, 6).toUpperCase();
+          localStorage.setItem("seller_device_id", id);
+        }
+        return id;
+      }
+
+      function generateSerialKeys(count = 1000) {
+        const keys = [];
+        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        for (let i = 0; i < count; i++) {
+          let k = "";
+          for (let j = 0; j < 12; j++)
+            k += chars[Math.floor(Math.random() * chars.length)];
+          keys.push(SERIAL_KEY_PREFIX + k);
+        }
+        return keys;
+      }
+
+      async function initSerialKeys() {
+        const existing = await db.settings
+          .where("key")
+          .equals("serial_keys")
+          .first();
+        if (!existing) {
+          const keys = generateSerialKeys(1000);
+          await db.settings.add({
+            id: "serial_keys",
+            key: "serial_keys",
+            value: JSON.stringify(keys),
+          });
+          console.log("🔑 Generated 1000 serial keys (15 chars each).");
+        }
+      }
+
+      async function validateSerialKey(inputKey) {
+        const clean = inputKey.trim().toUpperCase();
+        const entry = await db.settings
+          .where("key")
+          .equals("serial_keys")
+          .first();
+        if (!entry) return { valid: false, msg: "Key system not initialized." };
+        const keys = JSON.parse(entry.value);
+        if (!keys.includes(clean))
+          return { valid: false, msg: "Invalid serial key." };
+
+        const used = await db.settings.where("key").equals("used_keys").first();
+        const usedKeys = used ? JSON.parse(used.value) : [];
+        if (usedKeys.includes(clean))
+          return { valid: false, msg: "This key has already been used." };
+
+        usedKeys.push(clean);
+        await db.settings.put({
+          id: "used_keys",
+          key: "used_keys",
+          value: JSON.stringify(usedKeys),
+        });
+        await db.settings.put({
+          id: "activation",
+          key: "activation",
+          value: JSON.stringify({
+            deviceId,
+            serialKey: clean,
+            activatedAt: now(),
+          }),
+        });
+        localStorage.setItem("seller_activated", "true");
+        localStorage.setItem("seller_serial", clean);
+        return { valid: true, msg: "✅ Activated successfully!" };
+      }
+
+      async function checkActivation() {
+        const activated = localStorage.getItem("seller_activated") === "true";
+        if (!activated) return false;
+        const entry = await db.settings
+          .where("key")
+          .equals("activation")
+          .first();
+        if (!entry) return false;
+        const data = JSON.parse(entry.value);
+        if (data.deviceId !== deviceId) return false;
+        return true;
+      }
+
+      async function deactivateApp() {
+        if (
+          !confirm(
+            "Deactivate this device? This will require a new serial key.",
+          )
+        )
+          return;
+        await db.settings.where("key").equals("activation").delete();
+        localStorage.removeItem("seller_activated");
+        localStorage.removeItem("seller_serial");
+        toast("Deactivated. Restart app to re-activate.");
+        setTimeout(() => location.reload(), 800);
+      }
+
+      // ============================================================
+      //  APP INIT
+      // ============================================================
+      async function loadAll() {
+        await loadProducts();
+        await loadSuppliers();
+        await loadCustomers();
+        await loadPurchases();
+        await loadSales();
+        await updateStats();
+        await loadReports();
+        await updateSettingsUI();
+
+        document.getElementById("settings-device-id").textContent = deviceId;
+        const act = await db.settings.where("key").equals("activation").first();
+        if (act) {
+          const data = JSON.parse(act.value);
+          document.getElementById("settings-serial-key").textContent =
+            data.serialKey || "---";
+          document.getElementById("settings-status").textContent = "✅ Active";
+          document.getElementById("settings-status").className = "chip success";
+        } else {
+          document.getElementById("settings-serial-key").textContent = "---";
+          document.getElementById("settings-status").textContent =
+            "❌ Inactive";
+          document.getElementById("settings-status").className = "chip danger";
+        }
+        document.getElementById("device-id-badge").textContent =
+          "Device: " + deviceId.slice(-8);
+      }
+
+      // ============================================================
+      //  NAVIGATION
+      // ============================================================
+      document.querySelectorAll(".nav-item").forEach((item) => {
+        item.addEventListener("click", function () {
+          document
+            .querySelectorAll(".nav-item")
+            .forEach((n) => n.classList.remove("active"));
+          this.classList.add("active");
+          const page = this.dataset.page;
+          document
+            .querySelectorAll(".page")
+            .forEach((p) => p.classList.remove("active"));
+          document.getElementById("page-" + page).classList.add("active");
+          document.getElementById("sidebar").classList.remove("open");
+          if (page === "reports") loadReports();
+        });
+      });
+
+      document
+        .getElementById("menu-btn")
+        .addEventListener("click", function () {
+          document.getElementById("sidebar").classList.toggle("open");
+        });
+
+      document.addEventListener("click", function (e) {
+        const sidebar = document.getElementById("sidebar");
+        const menuBtn = document.getElementById("menu-btn");
+        if (
+          window.innerWidth <= 768 &&
+          sidebar.classList.contains("open") &&
+          !sidebar.contains(e.target) &&
+          !menuBtn.contains(e.target)
+        ) {
+          sidebar.classList.remove("open");
+        }
+      });
+
+      // ============================================================
+      //  SETTINGS: CASH BALANCE
+      // ============================================================
+      document
+        .getElementById("settings-cash-save")
+        .addEventListener("click", async function () {
+          const val = parseFloat(
+            document.getElementById("settings-cash-input").value,
+          );
+          if (isNaN(val) || val < 0) {
+            toast("Please enter a valid positive number.", "error");
+            return;
+          }
+          await setCashBalance(val);
+          toast("Cash balance updated to " + fmtPrice(val));
+          updateStats();
+          updateSettingsUI();
+        });
+
+      // ============================================================
+      //  WELCOME SETUP (cash + product)
+      // ============================================================
+      async function checkFirstRun() {
+        const products = await db.products.count();
+        const customers = await db.customers.count();
+        const suppliers = await db.suppliers.count();
+        const cash = await getCashBalance();
+        // If no data at all, show setup
+        if (
+          products === 0 &&
+          customers === 0 &&
+          suppliers === 0 &&
+          cash === 0
+        ) {
+          const welcomed = await db.settings
+            .where("key")
+            .equals("setup_welcomed")
+            .first();
+          if (welcomed) return;
+
+          showModal(
+            "👋 Welcome to Seller Pro",
+            `
+                    <p>Let's get your business set up. Enter your opening balances and add your first product.</p>
+                    <div class="form-group">
+                        <label>Current Cash in Hand</label>
+                        <input type="number" id="welcome-cash" step="0.01" value="0" />
+                    </div>
+                    <hr style="margin:16px 0;border-color:var(--border);" />
+                    <p><strong>Add your first product:</strong></p>
+                    <div class="form-row">
+                        <div class="form-group"><label>Product Name *</label><input id="welcome-product-name" /></div>
+                        <div class="form-group"><label>SKU (optional)</label><input id="welcome-product-sku" /></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>Cost Price *</label><input id="welcome-product-cost" type="number" step="0.01" /></div>
+                        <div class="form-group"><label>Sell Price *</label><input id="welcome-product-price" type="number" step="0.01" /></div>
+                    </div>
+                    <div class="form-group"><label>Quantity *</label><input id="welcome-product-qty" type="number" step="1" value="1" /></div>
+                    <div class="text-muted" style="margin-top:8px;">You can add more products, customers, and suppliers later.</div>
+                `,
+            async () => {
+              // Save cash
+              const cashVal = parseFloat(
+                document.getElementById("welcome-cash").value,
+              );
+              if (isNaN(cashVal) || cashVal < 0) {
+                toast("Enter a valid cash amount.", "error");
+                return false;
+              }
+              await setCashBalance(cashVal);
+
+              // Save product if name provided
+              const pname = document
+                .getElementById("welcome-product-name")
+                .value.trim();
+              if (pname) {
+                const cost = parseFloat(
+                  document.getElementById("welcome-product-cost").value,
+                );
+                const price = parseFloat(
+                  document.getElementById("welcome-product-price").value,
+                );
+                const qty =
+                  parseInt(
+                    document.getElementById("welcome-product-qty").value,
+                  ) || 0;
+                if (!isNaN(cost) && !isNaN(price) && cost >= 0 && price >= 0) {
+                  const sku =
+                    document
+                      .getElementById("welcome-product-sku")
+                      .value.trim() || "";
+                  await db.products.add({
+                    id: uuid(),
+                    name: pname,
+                    sku: sku,
+                    unit: "pcs",
+                    costPrice: cost,
+                    sellPrice: price,
+                    quantity: qty,
+                    supplierId: null,
+                    createdAt: now(),
+                    updatedAt: now(),
+                  });
+                  toast("Product added!");
+                } else {
+                  toast(
+                    "Product skipped – invalid price. You can add later.",
+                    "warning",
+                  );
+                }
+              }
+
+              await db.settings.put({
+                id: "setup_welcomed",
+                key: "setup_welcomed",
+                value: "true",
+              });
+              toast("Setup complete!");
+              loadAll();
+              return true;
+            },
+          );
+          // Customize modal button text
+          document.getElementById("modal-save-btn").textContent =
+            "Save & Start";
+        }
+      }
+
+      // ============================================================
+      //  ACTIVATION FLOW
+      // ============================================================
+      document
+        .getElementById("btn-activate")
+        .addEventListener("click", async function () {
+          const input = document.getElementById("serial-input");
+          const key = input.value.trim();
+          if (!key) {
+            document.getElementById("activation-error").textContent =
+              "Please enter a serial key.";
+            return;
+          }
+          this.disabled = true;
+          this.textContent = "Checking...";
+          document.getElementById("activation-error").textContent = "";
+          try {
+            const result = await validateSerialKey(key);
+            if (result.valid) {
+              document
+                .getElementById("activation-overlay")
+                .classList.add("hidden");
+              document.getElementById("app").classList.add("active");
+              toast("✅ Activated successfully!");
+              await loadAll();
+              checkFirstRun();
+            } else {
+              document.getElementById("activation-error").textContent =
+                result.msg || "Invalid key.";
+              this.disabled = false;
+              this.textContent = "Activate";
+            }
+          } catch (e) {
+            document.getElementById("activation-error").textContent =
+              "Error: " + e.message;
+            this.disabled = false;
+            this.textContent = "Activate";
+          }
+        });
+
+      document
+        .getElementById("serial-input")
+        .addEventListener("keydown", function (e) {
+          if (e.key === "Enter")
+            document.getElementById("btn-activate").click();
+        });
+
+      document
+        .getElementById("btn-logout")
+        .addEventListener("click", function () {
+          if (confirm("Logout and deactivate this device?")) deactivateApp();
+        });
+
+      // ============================================================
+      //  BOOT
+      // ============================================================
+      (async function boot() {
+        deviceId = generateDeviceId();
+        await db.open();
+        await initSerialKeys();
+
+        const isActive = await checkActivation();
+        if (isActive) {
+          document.getElementById("activation-overlay").classList.add("hidden");
+          document.getElementById("app").classList.add("active");
+          await loadAll();
+          checkFirstRun();
+          toast("Welcome back!");
+        } else {
+          document
+            .getElementById("activation-overlay")
+            .classList.remove("hidden");
+          document.getElementById("app").classList.remove("active");
+          const entry = await db.settings
+            .where("key")
+            .equals("serial_keys")
+            .first();
+          if (entry) {
+            const keys = JSON.parse(entry.value);
+            document.getElementById("key-hint").textContent =
+              "🔑 Example key: " + (keys[0] || "SP-XXXXXXXXXXXX");
+          }
+          document.getElementById("serial-input").focus();
+        }
+      })();
+
+      // ============================================================
+      //  DYNAMIC MODAL BEHAVIOR (payment type toggles)
+      // ============================================================
+      const origOpenModal = openModal;
+      openModal = function (type, data) {
+        origOpenModal(type, data);
+        setTimeout(async () => {
+          if (type === "product") {
+            const suppliers = await db.suppliers.toArray();
+            const sel = document.getElementById("f-product-supplier");
+            if (sel) {
+              const current = data?.supplierId || "";
+              sel.innerHTML =
+                '<option value="">None</option>' +
+                suppliers
+                  .map(
+                    (s) =>
+                      `<option value="${s.id}" ${s.id === current ? "selected" : ""}>${s.name}</option>`,
+                  )
+                  .join("");
+            }
+          }
+          if (type === "purchase") {
+            const suppliers = await db.suppliers.toArray();
+            const products = await db.products.toArray();
+            const selS = document.getElementById("f-purchase-supplier");
+            if (selS) {
+              selS.innerHTML =
+                '<option value="">Select</option>' +
+                suppliers
+                  .map((s) => `<option value="${s.id}">${s.name}</option>`)
+                  .join("");
+            }
+            const selP = document.getElementById("f-purchase-product");
+            if (selP) {
+              selP.innerHTML =
+                '<option value="">Select</option>' +
+                products
+                  .map(
+                    (p) =>
+                      `<option value="${p.id}">${p.name} (${p.quantity || 0} in stock)</option>`,
+                  )
+                  .join("");
+            }
+            // Payment type toggle
+            const paySel = document.getElementById("f-purchase-payment");
+            if (paySel) {
+              paySel.onchange = function () {
+                const row = document.getElementById("purchase-cash-credit-row");
+                const total =
+                  (parseFloat(
+                    document.getElementById("f-purchase-qty").value,
+                  ) || 0) *
+                  (parseFloat(
+                    document.getElementById("f-purchase-cost").value,
+                  ) || 0);
+                if (this.value === "cash") {
+                  row.style.display = "none";
+                  document.getElementById("f-purchase-cash").value = total;
+                  document.getElementById("f-purchase-credit").value = 0;
+                } else if (this.value === "credit") {
+                  row.style.display = "none";
+                  document.getElementById("f-purchase-cash").value = 0;
+                  document.getElementById("f-purchase-credit").value = total;
+                } else {
+                  row.style.display = "grid";
+                  document.getElementById("f-purchase-cash").value = total / 2;
+                  document.getElementById("f-purchase-credit").value =
+                    total / 2;
+                }
+              };
+              document
+                .getElementById("f-purchase-qty")
+                .addEventListener("input", paySel.onchange);
+              document
+                .getElementById("f-purchase-cost")
+                .addEventListener("input", paySel.onchange);
+              paySel.onchange();
+            }
+          }
+          if (type === "sale") {
+            const customers = await db.customers.toArray();
+            const products = await db.products.toArray();
+            const selC = document.getElementById("f-sale-customer");
+            if (selC) {
+              const current = data?.customerId || "walkin";
+              selC.innerHTML =
+                '<option value="walkin">🚶 Walk-in Customer</option>' +
+                customers
+                  .map(
+                    (c) =>
+                      `<option value="${c.id}" ${c.id === current ? "selected" : ""}>${c.name}</option>`,
+                  )
+                  .join("");
+            }
+            const selP = document.getElementById("f-sale-product");
+            if (selP) {
+              selP.innerHTML =
+                '<option value="">Select</option>' +
+                products
+                  .map(
+                    (p) =>
+                      `<option value="${p.id}">${p.name} (${p.quantity || 0} in stock) - ${fmtPrice(p.sellPrice || 0)}</option>`,
+                  )
+                  .join("");
+              selP.onchange = function () {
+                const id = this.value;
+                const prod = products.find((p) => p.id === id);
+                if (prod) {
+                  document.getElementById("f-sale-price").value =
+                    prod.sellPrice || 0;
+                  const paySel = document.getElementById("f-sale-payment");
+                  if (paySel) paySel.onchange();
+                }
+              };
+            }
+            const paySel = document.getElementById("f-sale-payment");
+            if (paySel) {
+              paySel.onchange = function () {
+                const row = document.getElementById("sale-cash-credit-row");
+                const qty =
+                  parseFloat(document.getElementById("f-sale-qty").value) || 0;
+                const price =
+                  parseFloat(document.getElementById("f-sale-price").value) ||
+                  0;
+                const total = qty * price;
+                if (this.value === "cash") {
+                  row.style.display = "none";
+                  document.getElementById("f-sale-cash").value = total;
+                  document.getElementById("f-sale-credit").value = 0;
+                } else if (this.value === "credit") {
+                  row.style.display = "none";
+                  document.getElementById("f-sale-cash").value = 0;
+                  document.getElementById("f-sale-credit").value = total;
+                } else {
+                  row.style.display = "grid";
+                  document.getElementById("f-sale-cash").value = total / 2;
+                  document.getElementById("f-sale-credit").value = total / 2;
+                }
+              };
+              document
+                .getElementById("f-sale-qty")
+                .addEventListener("input", paySel.onchange);
+              document
+                .getElementById("f-sale-price")
+                .addEventListener("input", paySel.onchange);
+              paySel.onchange();
+            }
+          }
+        }, 100);
+      };
+
+      console.log(
+        "🚀 Seller Pro v2.3 loaded with 15‑digit keys and product setup.",
+      );
+      console.log("📱 Device ID:", deviceId);
+      console.log("💾 Database: IndexedDB (SellerProDB)");
+      console.log("🔑 Serial keys are 15 characters (SP- + 12).");
+    </script>
+  </body>
+</html>
