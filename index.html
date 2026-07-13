@@ -7,15 +7,11 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
 
+    <!-- ✅ Manifest link – now correctly placed -->
     <link rel="manifest" href="manifest.json" />
-    <script>
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("sw.js");
-      }
 
-      <link rel="icon" type="image/png" href="icon-192.png" />
-        
-    </script>
+    <!-- ✅ Favicon link – correctly placed -->
+    <link rel="icon" type="image/png" href="icon-192.png" />
 
     <title>Seller Pro - Offline POS</title>
 
@@ -1267,6 +1263,16 @@
     <!-- ===== TOAST CONTAINER ===== -->
     <div class="toast-container" id="toast-container"></div>
 
+    <!-- ✅ SERVICE WORKER REGISTRATION – moved here, outside the head -->
+    <script>
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("sw.js")
+          .then(() => console.log("✅ Service Worker registered"))
+          .catch((err) => console.log("❌ SW registration failed:", err));
+      }
+    </script>
+
+    <!-- ===== MAIN SCRIPT (your existing JavaScript) ===== -->
     <script>
       // ============================================================
       //  DATABASE (IndexedDB with Dexie)
